@@ -14,18 +14,27 @@ def main():
             browser = p.chromium.launch(headless=True)
             page = browser.new_page()
             
+            # ✅ DEBUG: Response အကုန်လုံးကို စစ်ဆေးမယ်
             def handle_response(response):
+                url = response.url
+                status = response.status
+                content_type = response.headers.get('content-type', '')
+                
+                # fmp သို့မဟုတ် api ပါတဲ့ URL အကုန်ကို Log ထဲမှာ ပြမယ်
+                if 'fmp' in url.lower() or 'api' in url.lower():
+                    print(f"🔍 Response: {status} {url} (Type: {content_type})", flush=True)
+                
                 try:
-                    if 'json' in response.headers.get('content-type', '') and 'api.fmp.live/query' in response.url:
+                    if 'json' in content_type.lower() and 'api.fmp.live/query' in url:
                         data = response.json()
-                        print(f"✅ JSON Caught from {response.url}", flush=True)
+                        print(f"✅ JSON Caught from {url}", flush=True)
                         if 'data' in data:
                             keys = list(data['data'].keys())
                             print(f"   Keys found: {keys[:5]}...", flush=True)
                             for key, value in data['data'].items():
                                 collected_data[key] = value
                 except Exception as e:
-                    print(f"   Error parsing JSON: {e}", flush=True)
+                    print(f"   Error parsing JSON from {url}: {e}", flush=True)
 
             page.on("response", handle_response)
             
