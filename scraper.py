@@ -11,7 +11,6 @@ def main():
     try:
         with sync_playwright() as p:
             print("🌐 Launching browser...", flush=True)
-            # ✅ Headless Browser Detection ကို ရှောင်ရှားရန် Args များထည့်သွင်းခြင်း
             browser = p.chromium.launch(
                 headless=True,
                 args=[
@@ -19,14 +18,10 @@ def main():
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
                     '--disable-dev-shm-usage',
-                    '--disable-accelerated-2d-canvas',
-                    '--no-first-run',
-                    '--no-zygote',
                     '--disable-gpu'
                 ]
             )
             
-            # ✅ Realistic User Agent ထည့်သွင်းခြင်း
             context = browser.new_context(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                 viewport={'width': 1920, 'height': 1080}
@@ -40,8 +35,13 @@ def main():
                 if 'fmp' in url.lower() or 'api' in url.lower():
                     print(f"🔍 Response: {response.status} {url} (Type: {content_type})", flush=True)
                 
-                try:
-                    if 'json' in content_type.lower() and 'api.fmp.live/query' in url:
+                # ✅ api.fmp.live/query ဖြစ်ရင် Content-Type ဘာပဲဖြစ်ဖြစ် စစ်ဆေးမယ်
+                if 'api.fmp.live/query' in url:
+                    try:
+                        text = response.text()
+                        print(f"📄 API Response Snippet: {text[:300]}...", flush=True)
+                        
+                        # JSON အဖြစ် ဖြေရှင်းကြည့်မယ်
                         data = response.json()
                         print(f"✅ JSON Caught from {url}", flush=True)
                         if 'data' in data:
@@ -49,8 +49,8 @@ def main():
                             print(f"   Keys found: {keys[:5]}...", flush=True)
                             for key, value in data['data'].items():
                                 collected_data[key] = value
-                except Exception as e:
-                    pass
+                    except Exception as e:
+                        print(f"   ❌ Not valid JSON: {e}", flush=True)
 
             page.on("response", handle_response)
             
@@ -61,13 +61,6 @@ def main():
             print("🔄 Reloading to clear cache...", flush=True)
             page.reload(wait_until="domcontentloaded")
             time.sleep(10) 
-            
-            # ✅ DEBUG: Page Title နဲ့ Content အနည်းငယ်ကို ပြမယ် (Cloudflare Block ဖြစ်/မဖြစ် သိရအောင်)
-            title = page.title()
-            print(f"📄 Page Title: {title}", flush=True)
-            
-            content_snippet = page.content()[:300]
-            print(f"📄 Content Snippet: {content_snippet}...", flush=True)
             
             browser.close()
     except Exception as e:
