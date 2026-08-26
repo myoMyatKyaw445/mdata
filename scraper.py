@@ -11,18 +11,34 @@ def main():
     try:
         with sync_playwright() as p:
             print("🌐 Launching browser...", flush=True)
-            browser = p.chromium.launch(headless=True)
-            page = browser.new_page()
+            # ✅ Headless Browser Detection ကို ရှောင်ရှားရန် Args များထည့်သွင်းခြင်း
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    '--disable-blink-features=AutomationControlled',
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-accelerated-2d-canvas',
+                    '--no-first-run',
+                    '--no-zygote',
+                    '--disable-gpu'
+                ]
+            )
             
-            # ✅ DEBUG: Response အကုန်လုံးကို စစ်ဆေးမယ်
+            # ✅ Realistic User Agent ထည့်သွင်းခြင်း
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                viewport={'width': 1920, 'height': 1080}
+            )
+            page = context.new_page()
+            
             def handle_response(response):
                 url = response.url
-                status = response.status
                 content_type = response.headers.get('content-type', '')
                 
-                # fmp သို့မဟုတ် api ပါတဲ့ URL အကုန်ကို Log ထဲမှာ ပြမယ်
                 if 'fmp' in url.lower() or 'api' in url.lower():
-                    print(f"🔍 Response: {status} {url} (Type: {content_type})", flush=True)
+                    print(f"🔍 Response: {response.status} {url} (Type: {content_type})", flush=True)
                 
                 try:
                     if 'json' in content_type.lower() and 'api.fmp.live/query' in url:
@@ -34,27 +50,30 @@ def main():
                             for key, value in data['data'].items():
                                 collected_data[key] = value
                 except Exception as e:
-                    print(f"   Error parsing JSON from {url}: {e}", flush=True)
+                    pass
 
             page.on("response", handle_response)
             
             print("🌐 Navigating to fmp.live...", flush=True)
             page.goto("https://fmp.live/", wait_until="domcontentloaded")
-            print("⏳ Waiting 5 seconds for initial load...", flush=True)
             time.sleep(5) 
             
             print("🔄 Reloading to clear cache...", flush=True)
             page.reload(wait_until="domcontentloaded")
-            print("⏳ Waiting 10 seconds for data to load...", flush=True)
             time.sleep(10) 
+            
+            # ✅ DEBUG: Page Title နဲ့ Content အနည်းငယ်ကို ပြမယ် (Cloudflare Block ဖြစ်/မဖြစ် သိရအောင်)
+            title = page.title()
+            print(f"📄 Page Title: {title}", flush=True)
+            
+            content_snippet = page.content()[:300]
+            print(f"📄 Content Snippet: {content_snippet}...", flush=True)
             
             browser.close()
     except Exception as e:
         print(f"❌ Browser Error: {e}", flush=True)
 
     print(f"📊 Total keys collected: {len(collected_data)}", flush=True)
-    if collected_data:
-        print(f"   Keys: {list(collected_data.keys())}", flush=True)
 
     if not collected_data:
         print("❌ No data collected! Skipping file update.", flush=True)
@@ -63,10 +82,8 @@ def main():
     print("🔄 Formatting data for frontend...", flush=True)
     frontend_matches = {}
     
-    # ၁။ liveList (m3u8 Links)
     live_list = collected_data.get('liveList', [])
     if isinstance(live_list, list):
-        print(f"   Processing {len(live_list)} live items...", flush=True)
         for live in live_list:
             comp = live.get('competition', {})
             match_id = str(comp.get('id'))
@@ -85,10 +102,8 @@ def main():
                 "homeScore": comp.get('homeScore', 0), "awayScore": comp.get('awayScore', 0), "status": comp.get('status', 'LIVE'), "links": links
             }
 
-    # ၂။ competitionFilterList
     comp_list = collected_data.get('competitionFilterList', [])
     if isinstance(comp_list, list):
-        print(f"   Processing {len(comp_list)} competition items...", flush=True)
         for comp in comp_list:
             match_id = str(comp.get('id'))
             if match_id not in frontend_matches:
