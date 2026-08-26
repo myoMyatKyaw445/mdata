@@ -1,42 +1,63 @@
 import os
 import json
 import time
+import sys
 from playwright.sync_api import sync_playwright
 
 def main():
-    print("🚀 Starting FMP Scraper...")
+    print("🚀 Starting FMP Scraper...", flush=True)
     collected_data = {}
     
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
-        
-        def handle_response(response):
-            try:
-                if 'json' in response.headers.get('content-type', '') and 'api.fmp.live/query' in response.url:
-                    data = response.json()
-                    if 'data' in data:
-                        for key, value in data['data'].items():
-                            collected_data[key] = value
-            except:
-                pass
+    try:
+        with sync_playwright() as p:
+            print("🌐 Launching browser...", flush=True)
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            
+            def handle_response(response):
+                try:
+                    if 'json' in response.headers.get('content-type', '') and 'api.fmp.live/query' in response.url:
+                        data = response.json()
+                        print(f"✅ JSON Caught from {response.url}", flush=True)
+                        if 'data' in data:
+                            keys = list(data['data'].keys())
+                            print(f"   Keys found: {keys[:5]}...", flush=True)
+                            for key, value in data['data'].items():
+                                collected_data[key] = value
+                except Exception as e:
+                    print(f"   Error parsing JSON: {e}", flush=True)
 
-        page.on("response", handle_response)
-        page.goto("https://fmp.live/", wait_until="domcontentloaded")
-        time.sleep(3) 
-        
-        # Cache ရှင်းဖို့ တစ်ခေါက် Reload လုပ်မယ်
-        page.reload(wait_until="domcontentloaded")
-        time.sleep(5) 
-        
-        browser.close()
+            page.on("response", handle_response)
+            
+            print("🌐 Navigating to fmp.live...", flush=True)
+            page.goto("https://fmp.live/", wait_until="domcontentloaded")
+            print("⏳ Waiting 5 seconds for initial load...", flush=True)
+            time.sleep(5) 
+            
+            print("🔄 Reloading to clear cache...", flush=True)
+            page.reload(wait_until="domcontentloaded")
+            print("⏳ Waiting 10 seconds for data to load...", flush=True)
+            time.sleep(10) 
+            
+            browser.close()
+    except Exception as e:
+        print(f"❌ Browser Error: {e}", flush=True)
 
-    # Data ကို Frontend Format ပြောင်းခြင်း
+    print(f"📊 Total keys collected: {len(collected_data)}", flush=True)
+    if collected_data:
+        print(f"   Keys: {list(collected_data.keys())}", flush=True)
+
+    if not collected_data:
+        print("❌ No data collected! Skipping file update.", flush=True)
+        return
+
+    print("🔄 Formatting data for frontend...", flush=True)
     frontend_matches = {}
     
     # ၁။ liveList (m3u8 Links)
     live_list = collected_data.get('liveList', [])
     if isinstance(live_list, list):
+        print(f"   Processing {len(live_list)} live items...", flush=True)
         for live in live_list:
             comp = live.get('competition', {})
             match_id = str(comp.get('id'))
@@ -58,6 +79,7 @@ def main():
     # ၂။ competitionFilterList
     comp_list = collected_data.get('competitionFilterList', [])
     if isinstance(comp_list, list):
+        print(f"   Processing {len(comp_list)} competition items...", flush=True)
         for comp in comp_list:
             match_id = str(comp.get('id'))
             if match_id not in frontend_matches:
@@ -69,11 +91,13 @@ def main():
                     "homeScore": comp.get('homeScore', 0), "awayScore": comp.get('awayScore', 0), "status": comp.get('status', 'SCHEDULED'), "links": []
                 }
 
-    # ရလာတဲ့ Data ကို fmp_data.json အဖြစ် သိမ်းခြင်း
-    with open('fmp_data.json', 'w', encoding='utf-8') as f:
-        json.dump(list(frontend_matches.values()), f, indent=2, ensure_ascii=False)
+    final_data = list(frontend_matches.values())
+    print(f"💾 Saving {len(final_data)} matches to file...", flush=True)
     
-    print("✅ Scraping finished. Data saved to fmp_data.json")
+    with open('fmp_data.json', 'w', encoding='utf-8') as f:
+        json.dump(final_data, f, indent=2, ensure_ascii=False)
+    
+    print("✅ Scraping finished successfully!", flush=True)
 
 if __name__ == "__main__":
     main()
