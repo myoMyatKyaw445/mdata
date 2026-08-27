@@ -1,78 +1,46 @@
 import os
 import json
 import time
-import sys
 from playwright.sync_api import sync_playwright
+from pymongo import MongoClient, ReplaceOne
 
-def main():
-    print("🚀 Starting FMP Scraper...", flush=True)
+MONGO_URI = os.environ.get("MONGODB_URI")
+
+def scrape_and_update():
+    print(" Starting FMP Scraper on GitHub Actions...", flush=True)
     collected_data = {}
     
     try:
         with sync_playwright() as p:
-            print("🌐 Launching browser...", flush=True)
-            browser = p.chromium.launch(
-                headless=True,
-                args=[
-                    '--disable-blink-features=AutomationControlled',
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-gpu'
-                ]
-            )
-            
-            context = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                viewport={'width': 1920, 'height': 1080}
-            )
-            page = context.new_page()
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
             
             def handle_response(response):
-                url = response.url
-                content_type = response.headers.get('content-type', '')
-                
-                if 'fmp' in url.lower() or 'api' in url.lower():
-                    print(f"🔍 Response: {response.status} {url} (Type: {content_type})", flush=True)
-                
-                # ✅ api.fmp.live/query ဖြစ်ရင် Content-Type ဘာပဲဖြစ်ဖြစ် စစ်ဆေးမယ်
-                if 'api.fmp.live/query' in url:
-                    try:
-                        text = response.text()
-                        print(f"📄 API Response Snippet: {text[:300]}...", flush=True)
-                        
-                        # JSON အဖြစ် ဖြေရှင်းကြည့်မယ်
+                try:
+                    if 'json' in response.headers.get('content-type', '') and 'api.fmp.live/query' in response.url:
                         data = response.json()
-                        print(f"✅ JSON Caught from {url}", flush=True)
                         if 'data' in data:
-                            keys = list(data['data'].keys())
-                            print(f"   Keys found: {keys[:5]}...", flush=True)
                             for key, value in data['data'].items():
                                 collected_data[key] = value
-                    except Exception as e:
-                        print(f"   ❌ Not valid JSON: {e}", flush=True)
+                except:
+                    pass
 
             page.on("response", handle_response)
-            
-            print("🌐 Navigating to fmp.live...", flush=True)
             page.goto("https://fmp.live/", wait_until="domcontentloaded")
-            time.sleep(5) 
-            
-            print("🔄 Reloading to clear cache...", flush=True)
+            time.sleep(3)
             page.reload(wait_until="domcontentloaded")
-            time.sleep(10) 
-            
+            time.sleep(5)
             browser.close()
+            
     except Exception as e:
         print(f"❌ Browser Error: {e}", flush=True)
-
-    print(f"📊 Total keys collected: {len(collected_data)}", flush=True)
-
-    if not collected_data:
-        print("❌ No data collected! Skipping file update.", flush=True)
         return
 
-    print("🔄 Formatting data for frontend...", flush=True)
+    if not collected_data:
+        print("❌ No data collected!", flush=True)
+        return
+
+    print(f"🔄 Processing {len(collected_data)} keys...", flush=True)
     frontend_matches = {}
     
     live_list = collected_data.get('liveList', [])
@@ -83,9 +51,7 @@ def main():
             m3u8_url = live.get('pullUrlM3U8')
             if not m3u8_url and live.get('streams'):
                 for stream in live.get('streams', []):
-                    if stream.get('m3u8'):
-                        m3u8_url = stream.get('m3u8')
-                        break
+                    if stream.get('m3u8'): m3u8_url = stream.get('m3u8'); break
             links = [{"name": live.get('title', 'Live'), "url": m3u8_url}] if m3u8_url else []
             frontend_matches[match_id] = {
                 "id": match_id, "home_name": comp.get('homeTeam', {}).get('nameEn', 'Home'),
@@ -109,12 +75,23 @@ def main():
                 }
 
     final_data = list(frontend_matches.values())
-    print(f"💾 Saving {len(final_data)} matches to file...", flush=True)
     
+    # MongoDB သို့ ပို့မယ်
+    try:
+        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+        db = client["fmp_database"]
+        collection = db["matches"]
+        operations = [ReplaceOne({"id": match["id"]}, match, upsert=True) for match in final_data]
+        result = collection.bulk_write(operations)
+        print(f"☁️ Successfully updated {result.upserted_count + result.modified_count} matches in MongoDB!", flush=True)
+        client.close()
+    except Exception as e:
+        print(f"❌ MongoDB Error: {e}", flush=True)
+    
+    # JSON file အနေနဲ့လည်း သိမ်းထားမယ်
     with open('fmp_data.json', 'w', encoding='utf-8') as f:
         json.dump(final_data, f, indent=2, ensure_ascii=False)
-    
-    print("✅ Scraping finished successfully!", flush=True)
+    print("💾 Saved to fmp_data.json", flush=True)
 
 if __name__ == "__main__":
-    main()
+    scrape_and_update()
