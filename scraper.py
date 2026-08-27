@@ -7,13 +7,19 @@ from pymongo import MongoClient, ReplaceOne
 MONGO_URI = os.environ.get("MONGODB_URI")
 
 def scrape_and_update():
-    print(" Starting FMP Scraper on GitHub Actions...", flush=True)
+    print("🚀 Starting FMP Scraper on GitHub Actions...", flush=True)
     collected_data = {}
     
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
-            page = browser.new_page()
+            
+            # ✅ Real User လို ပြသဖို့ Context ထည့်သွင်းခြင်း
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                viewport={"width": 1920, "height": 1080}
+            )
+            page = context.new_page()
             
             def handle_response(response):
                 try:
@@ -26,10 +32,18 @@ def scrape_and_update():
                     pass
 
             page.on("response", handle_response)
+            
+            # ✅ Extra Headers ထည့်သွင်းခြင်း
+            page.set_extra_http_headers({
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Referer": "https://fmp.live/"
+            })
+            
             page.goto("https://fmp.live/", wait_until="domcontentloaded")
-            time.sleep(3)
+            time.sleep(4)
             page.reload(wait_until="domcontentloaded")
-            time.sleep(5)
+            time.sleep(6)
             browser.close()
             
     except Exception as e:
@@ -37,7 +51,7 @@ def scrape_and_update():
         return
 
     if not collected_data:
-        print("❌ No data collected!", flush=True)
+        print("❌ No data collected! (Likely blocked by Cloudflare)", flush=True)
         return
 
     print(f"🔄 Processing {len(collected_data)} keys...", flush=True)
@@ -76,7 +90,6 @@ def scrape_and_update():
 
     final_data = list(frontend_matches.values())
     
-    # MongoDB သို့ ပို့မယ်
     try:
         client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
         db = client["fmp_database"]
@@ -88,7 +101,6 @@ def scrape_and_update():
     except Exception as e:
         print(f"❌ MongoDB Error: {e}", flush=True)
     
-    # JSON file အနေနဲ့လည်း သိမ်းထားမယ်
     with open('fmp_data.json', 'w', encoding='utf-8') as f:
         json.dump(final_data, f, indent=2, ensure_ascii=False)
     print("💾 Saved to fmp_data.json", flush=True)
