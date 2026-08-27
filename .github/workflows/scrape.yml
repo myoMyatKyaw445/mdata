@@ -1,38 +1,40 @@
-name: Auto Scrape FMP Data
+name: FMP Auto Scraper
 
 on:
   schedule:
+    # ၃ မိနစ်တစ်ခါ Run မယ် (Cron format)
     - cron: '*/3 * * * *'
-  workflow_dispatch:
-
-permissions:
-  contents: write
+  workflow_dispatch: # လက်ရှိချက်ချင်း Run ကြည့်ချင်ရင်
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
+          python-version: '3.10'
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install playwright requests
+          pip install playwright pymongo
           playwright install chromium
 
-      - name: Run Scraper Script
+      - name: Run Scraper
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
         run: python scraper.py
 
-      - name: Commit and push changes
+      - name: Commit and push if changed
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add fmp_data.json
-          # အကယ်၍ file မပြောင်းလဲဘူးဆိုရင် commit မလုပ်ဘဲ skip မယ်
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update FMP data" && git push)
+          git add .
+          git diff --quiet && git diff --staged --quiet || git commit -m "Auto-update data"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
